@@ -1,4 +1,4 @@
-ARG TARGETARCH
+ARG ARCH="amd64"
 ARG BCI_IMAGE=registry.suse.com/bci/bci-base
 ARG GO_IMAGE=rancher/hardened-build-base:v1.22.4b2
 ARG CNI_IMAGE_VERSION=v1.4.1-build20240430
@@ -32,17 +32,17 @@ RUN git checkout tags/${TAG} -b ${TAG}
 
 ### BEGIN K3S XTABLES ###
 FROM builder AS k3s_xtables
-ARG TARGETARCH
+ARG ARCH
 ARG K3S_ROOT_VERSION=v0.13.0
-ADD https://github.com/rancher/k3s-root/releases/download/${K3S_ROOT_VERSION}/k3s-root-xtables-${TARGETARCH}.tar /opt/xtables/k3s-root-xtables.tar
+ADD https://github.com/rancher/k3s-root/releases/download/${K3S_ROOT_VERSION}/k3s-root-xtables-${ARCH}.tar /opt/xtables/k3s-root-xtables.tar
 RUN tar xvf /opt/xtables/k3s-root-xtables.tar -C /opt/xtables
 ### END K3S XTABLES #####
 
-FROM calico/bird:v0.3.3-184-g202a2186-${TARGETARCH} AS calico_bird
+FROM calico/bird:v0.3.3-184-g202a2186-${ARCH} AS calico_bird
 
 ### BEGIN CALICOCTL ###
 FROM builder AS calico_ctl
-ARG TARGETARCH
+ARG ARCH
 ARG TAG=v3.28.0
 ARG GOEXPERIMENT
 WORKDIR $GOPATH/src/github.com/projectcalico/calico/calicoctl
@@ -51,7 +51,7 @@ RUN GO_LDFLAGS="-linkmode=external \
     -X github.com/projectcalico/calico/calicoctl/calicoctl/commands.GIT_REVISION=$(git rev-parse --short HEAD) \
     " go-build-static.sh -gcflags=-trimpath=${GOPATH}/src -o bin/calicoctl ./calicoctl/calicoctl.go
 RUN go-assert-static.sh bin/*
-RUN if [ "${TARGETARCH}" = "amd64" ]; then go-assert-boring.sh bin/*; fi
+RUN if [ "${ARCH}" = "amd64" ]; then go-assert-boring.sh bin/*; fi
 RUN install -s bin/* /usr/local/bin
 RUN calicoctl --version
 ### END CALICOCTL #####
@@ -59,7 +59,7 @@ RUN calicoctl --version
 
 ### BEGIN CALICO CNI ###
 FROM builder AS calico_cni
-ARG TARGETARCH
+ARG ARCH
 ARG TAG=v3.28.0
 ARG GOEXPERIMENT
 WORKDIR $GOPATH/src/github.com/projectcalico/calico/cni-plugin
@@ -71,7 +71,7 @@ RUN go-build-static.sh -gcflags=-trimpath=${GOPATH}/src -o bin/calico ./cmd/cali
 RUN go-build-static.sh -gcflags=-trimpath=${GOPATH}/src -o bin/calico-ipam ./cmd/calico
 RUN go-build-static.sh -gcflags=-trimpath=${GOPATH}/src -o bin/install ./cmd/install
 RUN go-assert-static.sh bin/*
-RUN if [ "${TARGETARCH}" = "amd64" ]; then go-assert-boring.sh bin/*; fi
+RUN if [ "${ARCH}" = "amd64" ]; then go-assert-boring.sh bin/*; fi
 RUN mkdir -vp /opt/cni/bin
 RUN install -s bin/* /opt/cni/bin/
 ### END CALICO CNI #####
@@ -80,7 +80,7 @@ RUN install -s bin/* /opt/cni/bin/
 ### BEGIN CALICO NODE ###
 ### Can't use go-build-static.sh due to -Wl and --fatal-warnings flags ###
 FROM builder AS calico_node
-ARG TARGETARCH
+ARG ARCH
 ARG TAG=v3.28.0
 ARG GOEXPERIMENT
 WORKDIR $GOPATH/src/github.com/projectcalico/calico/node
@@ -88,15 +88,15 @@ RUN go mod download
 ENV CGO_LDFLAGS="-L/go/src/github.com/projectcalico/calico/felix/bpf-gpl/include/libbpf/src -lbpf -lelf -lz -lzstd"
 ENV CGO_CFLAGS="-I/go/src/github.com/projectcalico/calico/felix//bpf-gpl/include/libbpf/src -I/go/src/github.com/projectcalico/calico/felix//bpf-gpl"
 ENV CGO_ENABLED=1
-RUN if [ "${TARGETARCH}" = "amd64" ]; then make -j 16 -C ../felix/bpf-gpl/include/libbpf/src BUILD_STATIC_ONLY=1; fi
-RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+RUN if [ "${ARCH}" = "amd64" ]; then make -j 16 -C ../felix/bpf-gpl/include/libbpf/src BUILD_STATIC_ONLY=1; fi
+RUN if [ "${ARCH}" = "amd64" ]; then \
     go build -ldflags "-linkmode=external -X github.com/projectcalico/calico/node/pkg/lifecycle/startup.VERSION=${TAG} \
     -X github.com/projectcalico/calico/node/buildinfo.GitRevision=$(git rev-parse HEAD) \
     -X github.com/projectcalico/calico/node/buildinfo.GitVersion=$(git describe --tags --always) \
     -X github.com/projectcalico/calico/node/buildinfo.BuildDate=$(date -u +%FT%T%z) -extldflags \"-static\"" \
     -gcflags=-trimpath=${GOPATH}/src -o bin/calico-node ./cmd/calico-node; \
     fi
-RUN if [ "${TARGETARCH}" != "amd64" ]; then \  
+RUN if [ "${ARCH}" != "amd64" ]; then \  
     CGO_LDFLAGS="-lelf -lz -lzstd" && CGO_CFLAGS="" && go build -ldflags "-linkmode=external \
     -X github.com/projectcalico/calico/node/pkg/lifecycle/startup.VERSION=${TAG} \
     -X github.com/projectcalico/calico/node/buildinfo.GitRevision=$(git rev-parse HEAD) \
@@ -105,7 +105,7 @@ RUN if [ "${TARGETARCH}" != "amd64" ]; then \
     -gcflags=-trimpath=${GOPATH}/src -o bin/calico-node ./cmd/calico-node; \
     fi
 RUN go-assert-static.sh bin/calico-node
-RUN if [ "${TARGETARCH}" = "amd64" ]; then go-assert-boring.sh bin/calico-node; fi
+RUN if [ "${ARCH}" = "amd64" ]; then go-assert-boring.sh bin/calico-node; fi
 RUN install -s bin/calico-node /usr/local/bin
 ### END CALICO NODE #####
 
@@ -142,7 +142,7 @@ RUN install -D -s bin/check-status /usr/local/bin/
 FROM centos:7 AS runit-amd64
 FROM centos:7 AS runit-arm64
 FROM clefos:7 AS runit-s390x
-FROM runit-${TARGETARCH} AS runit
+FROM runit-${ARCH} AS runit
 ARG RUNIT_VER=2.1.2
 # Install build dependencies and security updates.
 RUN yum install -y rpm-build yum-utils make && \
@@ -201,7 +201,7 @@ COPY --from=cni	/opt/cni/                            /opt/cni/
 COPY --from=k3s_xtables /opt/xtables/bin/            /usr/sbin/
 COPY --from=runit /opt/local/command/                /usr/sbin/
 
-FROM calico_rootfs_overlay_${TARGETARCH} as calico_rootfs_overlay
+FROM calico_rootfs_overlay_${ARCH} as calico_rootfs_overlay
 
 FROM bci
 RUN zypper update -y && \
@@ -226,4 +226,4 @@ COPY --from=calico_rootfs_overlay / /
 ENV PATH=$PATH:/opt/cni/bin
 RUN set -x && \
     test -e /opt/cni/bin/install && \
-    ln -vs /opt/cni/bin/install /install-cni
+    ln -vs /opt/cni/bin/install /install-cni \
